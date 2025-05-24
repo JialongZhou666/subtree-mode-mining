@@ -3,12 +3,12 @@
 ### Baseline Methods
 #### Baseline 1
 ```
-g++ -o fair_substring_baseline1 baseline1.cpp
+g++ -o fair_substring_baseline1 Baseline1.cpp
 ```
 
 #### Baseline 2
 ```
-g++ -o fair_substring_baseline2 baseline2.cpp
+g++ -o fair_substring_baseline2 Baseline2.cpp
 ```
 
 ### WAQ-based Method
