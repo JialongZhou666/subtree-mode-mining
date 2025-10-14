@@ -42,6 +42,14 @@ g++ -std=c++17 -O3 -D_USE_64 -I. SCM.cpp MultiColorESA.cpp -ldivsufsort64 -lsdsl
 
 ---
 
+## Datasets
+
+The datasets used in our experiments can be found in the following Google Drive folder:
+
+[https://drive.google.com/drive/folders/1Hmp5RKhoZTOX-McSD_2VqPi0K4PcazgH?usp=sharing](https.google.com/drive/folders/1Hmp5RKhoZTOX-McSD_2VqPi0K4PcazgH?usp=sharing)
+
+---
+
 ## Execution
 
 The compiled programs share a common usage pattern.
