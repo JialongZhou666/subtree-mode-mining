@@ -536,23 +536,29 @@ public:
         analyzeAllNodes(root, query_structure, results);
         
         sort(results.begin(), results.end(),
-             [](const auto& a, const auto& b) {
-                 return get<0>(a).length() > get<0>(b).length();
-             });
+            [](const auto& a, const auto& b) {
+                return get<0>(a).length() > get<0>(b).length();
+            });
+        
+        output_file << "=== Suffix Tree Analysis ===" << endl;
+        
+        const int MAX_RESULTS_TO_SAVE = 10;
+        output_file << "Top " << min(MAX_RESULTS_TO_SAVE, (int)results.size()) << " longest common substrings:" << endl;
         
         int displayed = 0;
         for (const auto& [substr, freq_array, max_freq, min_freq] : results) {
             if (substr.find('$') != string::npos || substr.empty()) continue;
             
-            output_file << "\"" << substr << "\" -> [";
-            for (int i = 0; i < min(10, (int)freq_array.size()); i++) {
+            output_file << (displayed+1) << ". Length: " << substr.length() << ", Substring: \"" << substr << "\"" << endl;
+            output_file << "   Frequencies: [";
+            for (int i = 0; i < min(20, (int)freq_array.size()); i++) {
                 output_file << freq_array[i];
-                if (i < min(9, (int)freq_array.size() - 1)) output_file << ",";
+                if (i < min(20, (int)freq_array.size()) - 1) output_file << ",";
             }
-            if (freq_array.size() > 10) output_file << "...";
-            output_file << "] | Max: " << max_freq << " | Min: " << min_freq << endl;
+            if (freq_array.size() > 20) output_file << ",...";
+            output_file << "]" << endl;
             
-            if (++displayed >= 50) break;
+            if (++displayed >= MAX_RESULTS_TO_SAVE) break;
         }
         
         delete[] colors_array;
