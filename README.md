@@ -14,11 +14,28 @@ Our experiments on massive real-world datasets (with trees up to 7.3 billion nod
 
 ## Requirements
 
-* **OS**: A Linux-based system (e.g., Ubuntu, CentOS).
-* **Compiler**: A modern C++17 compatible compiler (e.g., GCC 7+ or Clang 6+).
-* **Dependencies**: The following libraries are required:
-    * `libdivsufsort`: A library for constructing suffix arrays.
-    * `libsdsl-lite`: The Succinct Data Structure Library.
+* **OS**: A GNU/Linux system (e.g., Ubuntu, CentOS).
+* **Compiler**: A modern C++17 ready compiler (e.g., GCC 7+ or Clang 6+).
+* **Dependencies**: This project requires `sdsl-lite` and `libdivsufsort`. Please follow these steps to install them:
+
+    1.  **Install `sdsl-lite`**
+        ```bash
+        git clone [https://github.com/simongog/sdsl-lite.git](https://github.com/simongog/sdsl-lite.git)
+        cd sdsl-lite
+        ./install.sh
+        cd ..
+        ```
+
+    2.  **Install `libdivsufsort`**
+        ```bash
+        git clone [https://github.com/y-256/libdivsufsort.git](https://github.com/y-256/libdivsufsort.git)
+        cd libdivsufsort
+        mkdir build && cd build
+        cmake ..
+        make
+        sudo make install
+        cd ../..
+        ```
 
 ---
 
@@ -46,7 +63,7 @@ g++ -std=c++17 -O3 -D_USE_64 -I. SCM.cpp MultiColorESA.cpp -ldivsufsort64 -lsdsl
 
 The datasets used in our experiments can be found in the following Google Drive folder:
 
-[https://drive.google.com/drive/folders/1Hmp5RKhoZTOX-McSD_2VqPi0K4PcazgH?usp=sharing](https.google.com/drive/folders/1Hmp5RKhoZTOX-McSD_2VqPi0K4PcazgH?usp=sharing)
+[https://drive.google.com/drive/folders/1Hmp5RKhoZTOX-McSD_2VqPi0K4PcazgH?usp=sharing](https://drive.google.com/drive/folders/1Hmp5RKhoZTOX-McSD_2VqPi0K4PcazgH?usp=sharing)
 
 ---
 

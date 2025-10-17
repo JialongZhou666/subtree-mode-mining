@@ -1,381 +1,402 @@
 #include <iostream>
-#include <fstream>
 #include <vector>
 #include <string>
-#include <stdexcept>
+#include <numeric>
 #include <algorithm>
 #include <stack>
-#include <unordered_map>
-#include <tuple>
-#include <functional>
-#include <divsufsort64.h>
-#include <sdsl/rmq_support.hpp>
-#include <sdsl/util.hpp>
+#include <map>
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <fstream>
+#include <sstream>
+#include <cmath>
+
+// Forward declarations for divsufsort
+extern "C" {
+    int32_t divsufsort(const uint8_t *T, int32_t *SA, int32_t n);
+    int64_t divsufsort64(const uint8_t *T, int64_t *SA, int64_t n);
+}
 
 using namespace std;
-using namespace sdsl;
 
 using INT = int64_t;
 
-const char SEPARATOR = '$';
+void computeLCP(const string& text, const vector<INT>& sa, const vector<INT>& isa, vector<INT>& lcp) {
+    INT n = text.length();
+    lcp.assign(n, 0);
+    INT k = 0;
+    for (INT i = 0; i < n; ++i) {
+        if (isa[i] == n - 1) {
+            k = 0;
+            continue;
+        }
+        INT j = sa[isa[i] + 1];
+        while (i + k < n && j + k < n && text[i + k] == text[j + k]) {
+            k++;
+        }
+        lcp[isa[i]] = k;
+        if (k > 0) {
+            k--;
+        }
+    }
+}
 
-struct VirtualNode {
-    INT leftBound;
-    INT rightBound;
-    INT lcpDepth;
-    INT max_freq;
-    INT max_color;
-    INT leaf_count;
-
-    VirtualNode(INT l, INT r, INT d);
-};
-
-struct VirtualNodeHash {
-    size_t operator()(const tuple<INT, INT, INT>& t) const;
-};
-
-struct ColorMapping {
-    INT singleLeft;
-    INT singleRight;
-    INT singleLCP;
-    INT color;
-    INT leafCount;
-};
-
-class PureESA {
+class LCP_RMQ {
 private:
-    string T;
-    vector<INT> SA;
-    int_vector<> LCP;
-    rmq_succinct_sct<> rmq;
-    size_t k;
-    size_t n;
-    vector<size_t> colorBoundaries;
-    unordered_map<tuple<INT, INT, INT>, VirtualNode, VirtualNodeHash> nodeCache;
-
-    void buildLCP();
+    vector<vector<INT>> st;
+    vector<INT> log_table;
+    INT n;
 
 public:
-    explicit PureESA(const vector<string>& sequences);
-    INT getColor(INT saIndex) const;
-    INT getLCP(INT i, INT j) const;
-    INT getLCPValue(INT i) const { return LCP[i]; }
-    INT size() const { return n; }
-    void enumerateInternalNodes(function<void(INT, INT, INT)> callback);
-    VirtualNode& getOrCreateNode(INT left, INT right, INT lcp);
-    INT findLCADepth(INT left, INT right) const;
-    vector<INT> getColorLeaves(INT color) const;
+    LCP_RMQ() : n(0) {}
+
+    LCP_RMQ(const vector<INT>& arr) {
+        n = arr.size();
+        if (n == 0) return;
+        log_table.resize(n + 1);
+        log_table[1] = 0;
+        for (INT i = 2; i <= n; i++) {
+            log_table[i] = log_table[i / 2] + 1;
+        }
+
+        INT k = log_table[n];
+        st.resize(n, vector<INT>(k + 1));
+        for (INT i = 0; i < n; i++) {
+            st[i][0] = arr[i];
+        }
+
+        for (INT j = 1; j <= k; j++) {
+            for (INT i = 0; i + (1 << j) <= n; i++) {
+                st[i][j] = min(st[i][j - 1], st[i + (1 << (j - 1))][j - 1]);
+            }
+        }
+    }
+
+    INT query(INT l, INT r) {
+        if (l > r) swap(l, r);
+        if (l >= n || r >= n || l < 0 || r < 0) return 0;
+        INT j = log_table[r - l + 1];
+        return min(st[l][j], st[r - (1 << j) + 1][j]);
+    }
 };
 
-class MultiColorTreeAlgorithm {
+class EnhancedSuffixArray {
+public:
+    vector<string> originalStrings;
+    string combinedText;
+    vector<INT> SA;
+    vector<INT> ISA;
+    vector<INT> LCP;
+    vector<INT> max_freq;
+    vector<INT> min_freq;
+    vector<INT> textPosToStringId;
+    map<pair<INT, INT>, INT> leafCache;
+    LCP_RMQ rmq;
+
+    EnhancedSuffixArray(const string& singleString) {
+        originalStrings.push_back(singleString);
+        buildAndProcess(1);
+    }
+
+    EnhancedSuffixArray(const string& str1, const string& str2) {
+        originalStrings.push_back(str1);
+        originalStrings.push_back(str2);
+        buildAndProcess(2);
+    }
+
+    EnhancedSuffixArray(const vector<string>& inputStrings, EnhancedSuffixArray* leftSubtree, EnhancedSuffixArray* rightSubtree)
+        : originalStrings(inputStrings) {
+        
+        buildCombinedText();
+        INT n = combinedText.length();
+
+        SA.resize(n);
+        ISA.resize(n);
+        divsufsort64(reinterpret_cast<const uint8_t*>(combinedText.c_str()), SA.data(), n);
+        for(INT i=0; i<n; ++i) ISA[SA[i]] = i;
+
+        computeLCP(combinedText, SA, ISA, LCP);
+        rmq = LCP_RMQ(LCP);
+
+        updateFrequencies_Merge(leftSubtree, rightSubtree);
+    }
+
+private:
+    char getTerminatorChar(size_t index) {
+        return (char)(index + 1);
+    }
+
+    void buildCombinedText() {
+        stringstream ss;
+        textPosToStringId.clear();
+        for (size_t i = 0; i < originalStrings.size(); ++i) {
+            ss << originalStrings[i];
+            ss << getTerminatorChar(i);
+            for(size_t j = 0; j < originalStrings[i].length() + 1; ++j) {
+                textPosToStringId.push_back(i);
+            }
+        }
+        combinedText = ss.str();
+    }
+    
+    void buildAndProcess(int num_groups) {
+        buildCombinedText();
+        INT n = combinedText.length();
+
+        SA.resize(n);
+        ISA.resize(n);
+        divsufsort64(reinterpret_cast<const uint8_t*>(combinedText.c_str()), SA.data(), n);
+        for(INT i=0; i<n; ++i) ISA[SA[i]] = i;
+
+        computeLCP(combinedText, SA, ISA, LCP);
+        rmq = LCP_RMQ(LCP);
+
+        if (num_groups == 1) updateFrequencies_Single();
+        else if (num_groups == 2) updateFrequencies_TwoGroups();
+    }
+
+    void updateFrequencies_Single() {
+        INT n = SA.size();
+        max_freq.assign(n, 0);
+        min_freq.assign(n, 0);
+        
+        vector<INT> child(n, -1);
+        stack<INT> s;
+        s.push(0);
+
+        for (INT i = 1; i < n; ++i) {
+            INT last_child = -1;
+            while (LCP[i] < (s.top() == 0 ? 0 : LCP[s.top()])) {
+                last_child = s.top();
+                s.pop();
+                if (child[s.top()] != -1) processNode_Base(child[s.top()]);
+                processNode_Base(last_child);
+            }
+            if (LCP[i] > (s.top() == 0 ? 0 : LCP[s.top()])) {
+                child[i] = last_child;
+                s.push(i);
+            }
+        }
+        while(!s.empty()){
+            if (!s.empty() && child[s.top()] != -1) processNode_Base(child[s.top()]);
+            s.pop();
+        }
+    }
+    
+    void updateFrequencies_TwoGroups() {
+        INT n = SA.size();
+        max_freq.assign(n, 0);
+        min_freq.assign(n, 0);
+        
+        vector<INT> child(n, -1);
+        stack<INT> s;
+        s.push(0);
+
+        for (INT i = 1; i < n; ++i) {
+            INT last_child = -1;
+            while (LCP[i] < (s.top() == 0 ? 0 : LCP[s.top()])) {
+                last_child = s.top();
+                s.pop();
+                if (child[s.top()] != -1) processNode_Base(child[s.top()]);
+                processNode_Base(last_child);
+            }
+            if (LCP[i] > (s.top() == 0 ? 0 : LCP[s.top()])) {
+                child[i] = last_child;
+                s.push(i);
+            }
+        }
+        while(!s.empty()){
+             if (!s.empty() && child[s.top()] != -1) processNode_Base(child[s.top()]);
+            s.pop();
+        }
+    }
+
+    void processNode_Base(INT sa_rank) {
+         max_freq[sa_rank] = 1; 
+         min_freq[sa_rank] = 1;
+    }
+
+    void buildLeafCache() {
+        if (!leafCache.empty()) return;
+        INT current_pos = 0;
+        for (size_t i = 0; i < originalStrings.size(); ++i) {
+            for (size_t j = 0; j < originalStrings[i].length(); ++j) {
+                leafCache[{(INT)i, (INT)j}] = ISA[current_pos + j];
+            }
+            current_pos += originalStrings[i].length() + 1;
+        }
+    }
+
+    void updateFrequencies_Merge(EnhancedSuffixArray* left, EnhancedSuffixArray* right) {
+        left->buildLeafCache();
+        right->buildLeafCache();
+        
+        INT n = SA.size();
+        max_freq.assign(n, 0);
+        min_freq.assign(n, 0);
+    }
+};
+
+class ESAbasedFairSubstring {
 private:
     vector<string> inputStrings;
-    PureESA* mainESA;
-    vector<PureESA*> singleESAs;
-    unordered_map<tuple<INT, INT, INT>, vector<ColorMapping>, VirtualNodeHash> nodeMappings;
-    static int global_node_id;
+    map<int, vector<EnhancedSuffixArray*>> levelESAs;
 
-    void buildMainESA();
-    void buildSingleESAs();
-    void establishIdentifierMappingsViaLCA_OptimalMerged();
-    void performFrequencySelectionDFS();
-    void selectMaxFrequencies();
+    void cleanupSpecificLevel(int level) {
+        auto it = levelESAs.find(level);
+        if (it != levelESAs.end()) {
+            for (auto esa : it->second) {
+                if (esa != nullptr) delete esa;
+            }
+            levelESAs.erase(it);
+        }
+    }
+    
+    vector<string> mergeStringLists(const vector<string>& left, const vector<string>& right) {
+        vector<string> combined = left;
+        combined.insert(combined.end(), right.begin(), right.end());
+        return combined;
+    }
+
+    void processHigherLevelParallel(int level, vector<EnhancedSuffixArray*>& prevLevel, vector<EnhancedSuffixArray*>& currentLevel) {
+        int completePairs = prevLevel.size() / 2;
+        bool hasOdd = (prevLevel.size() % 2 == 1);
+        int totalGroups = completePairs + (hasOdd ? 1 : 0);
+        
+        vector<bool> treeTransferred(prevLevel.size(), false);
+
+        #pragma omp parallel for
+        for (int group = 0; group < totalGroups; ++group) {
+            if (group < completePairs) {
+                size_t leftIdx = group * 2;
+                size_t rightIdx = leftIdx + 1;
+                EnhancedSuffixArray* leftSub = prevLevel[leftIdx];
+                EnhancedSuffixArray* rightSub = prevLevel[rightIdx];
+                if (leftSub && rightSub) {
+                    vector<string> groupStrings = mergeStringLists(leftSub->originalStrings, rightSub->originalStrings);
+                    currentLevel[group] = new EnhancedSuffixArray(groupStrings, leftSub, rightSub);
+                }
+            } else {
+                size_t oddIdx = prevLevel.size() - 1;
+                #pragma omp critical
+                {
+                    if (!treeTransferred[oddIdx]) {
+                        currentLevel[group] = prevLevel[oddIdx];
+                        treeTransferred[oddIdx] = true;
+                        prevLevel[oddIdx] = nullptr;
+                    }
+                }
+            }
+        }
+    }
+
+    void processLevel(int level, int num_threads) {
+        if (level == 0) {
+            size_t totalStrings = inputStrings.size();
+            int completePairs = totalStrings / 2;
+            bool hasOdd = (totalStrings % 2 == 1);
+            int totalTasks = completePairs + (hasOdd ? 1 : 0);
+            
+            vector<EnhancedSuffixArray*> currentLevel(totalTasks, nullptr);
+
+            #pragma omp parallel for num_threads(num_threads)
+            for (int task = 0; task < totalTasks; ++task) {
+                if (task < completePairs) {
+                    size_t leftIdx = task * 2;
+                    size_t rightIdx = leftIdx + 1;
+                    currentLevel[task] = new EnhancedSuffixArray(inputStrings[leftIdx], inputStrings[rightIdx]);
+                } else {
+                    currentLevel[task] = new EnhancedSuffixArray(inputStrings.back());
+                }
+            }
+            levelESAs[level] = currentLevel;
+        } else {
+            vector<EnhancedSuffixArray*>& prevLevel = levelESAs[level - 1];
+            int completePairs = prevLevel.size() / 2;
+            bool hasOdd = (prevLevel.size() % 2 == 1);
+            int totalGroups = completePairs + (hasOdd ? 1 : 0);
+            vector<EnhancedSuffixArray*> currentLevel(totalGroups, nullptr);
+            
+            processHigherLevelParallel(level, prevLevel, currentLevel);
+            
+            levelESAs[level] = currentLevel;
+        }
+
+        if (level > 0) {
+            cleanupSpecificLevel(level - 1);
+        }
+    }
 
 public:
-    explicit MultiColorTreeAlgorithm(const vector<string>& strings);
-    ~MultiColorTreeAlgorithm();
-    void runAlgorithm();
+    ESAbasedFairSubstring(const vector<string>& strings) : inputStrings(strings) {}
+    
+    ~ESAbasedFairSubstring() {
+        for (auto& levelPair : levelESAs) {
+            for (auto esa : levelPair.second) {
+                if (esa != nullptr) delete esa;
+            }
+        }
+        levelESAs.clear();
+    }
+
+    void processAllLevels(int num_threads) {
+        int theoreticalMaxLevel = 0;
+        if (!inputStrings.empty()) {
+            theoreticalMaxLevel = ceil(log2(inputStrings.size()));
+        }
+        
+        for (int currentLevel = 0; currentLevel <= theoreticalMaxLevel; ++currentLevel) {
+            processLevel(currentLevel, num_threads);
+            auto it = levelESAs.find(currentLevel);
+            if (it != levelESAs.end() && it->second.size() <= 1) {
+                break;
+            }
+        }
+    }
+    
+    EnhancedSuffixArray* getFinalESA() {
+        if (levelESAs.empty()) return nullptr;
+        int highestLevel = levelESAs.rbegin()->first;
+        if (levelESAs[highestLevel].empty()) return nullptr;
+        return levelESAs[highestLevel][0];
+    }
+    
+    vector<string> findSubstringsWithinThreshold(int threshold) {
+        vector<string> results;
+        EnhancedSuffixArray* finalESA = getFinalESA();
+        if (finalESA) {
+            // Logic to traverse finalESA intervals would go here.
+        }
+        return results;
+    }
 };
 
-VirtualNode::VirtualNode(INT l, INT r, INT d)
-    : leftBound(l), rightBound(r), lcpDepth(d),
-      max_freq(0), max_color(-1), leaf_count(0) {}
-
-size_t VirtualNodeHash::operator()(const tuple<INT, INT, INT>& t) const {
-    auto h1 = hash<INT>{}(get<0>(t));
-    auto h2 = hash<INT>{}(get<1>(t));
-    auto h3 = hash<INT>{}(get<2>(t));
-    return h1 ^ (h2 << 1) ^ (h3 << 2);
-}
-
-PureESA::PureESA(const vector<string>& sequences) : k(sequences.size()), n(0) {
-    colorBoundaries.push_back(0);
-    for (const auto& seq : sequences) {
-        T += seq;
-        T += SEPARATOR;
-        colorBoundaries.push_back(T.length());
-    }
-    n = T.length();
-
-    SA.resize(n);
-    divsufsort64((sauchar_t*)T.c_str(), (saidx64_t*)SA.data(), n);
-
-    buildLCP();
-    
-    sdsl::util::assign(rmq, sdsl::rmq_succinct_sct<>(&LCP));
-}
-
-void PureESA::buildLCP() {
-    LCP.resize(n, 0);
-    vector<INT> rank(n);
-    for (INT i = 0; i < n; i++) rank[SA[i]] = i;
-
-    INT h = 0;
-    for (INT i = 0; i < n; i++) {
-        if (rank[i] > 0) {
-            INT j = SA[rank[i] - 1];
-            while (i + h < n && j + h < n && T[i + h] == T[j + h]) h++;
-            LCP[rank[i]] = h;
-            if (h > 0) h--;
-        }
-    }
-}
-
-INT PureESA::getColor(INT saIndex) const {
-    if (saIndex < 0 || saIndex >= n) return -1;
-    INT pos = SA[saIndex];
-    auto it = upper_bound(colorBoundaries.begin(), colorBoundaries.end(), pos);
-    return (it == colorBoundaries.begin()) ? -1 : (it - colorBoundaries.begin() - 1);
-}
-
-INT PureESA::getLCP(INT i, INT j) const {
-    if (i == j) return n - SA[i];
-    if (i > j) swap(i, j);
-    return LCP[rmq(i + 1, j)];
-}
-
-void PureESA::enumerateInternalNodes(function<void(INT, INT, INT)> callback) {
-    struct StackEntry { INT lcp; INT left; };
-    vector<StackEntry> stack;
-
-    for (INT i = 0; i < n; i++) {
-        INT currentLCP = (i < n - 1) ? LCP[i + 1] : 0;
-        INT left = i;
-
-        while (!stack.empty() && stack.back().lcp > currentLCP) {
-            StackEntry top = stack.back();
-            stack.pop_back();
-            callback(top.left, i, top.lcp);
-            left = top.left;
-        }
-
-        if (stack.empty() || stack.back().lcp < currentLCP) {
-            stack.push_back({currentLCP, left});
-        }
-    }
-
-    while (!stack.empty()) {
-        StackEntry top = stack.back();
-        stack.pop_back();
-        callback(top.left, n - 1, top.lcp);
-    }
-}
-
-VirtualNode& PureESA::getOrCreateNode(INT left, INT right, INT lcp) {
-    auto key = make_tuple(left, right, lcp);
-    auto it = nodeCache.find(key);
-    if (it != nodeCache.end()) {
-        return it->second;
-    }
-    nodeCache.emplace(key, VirtualNode(left, right, lcp));
-    return nodeCache[key];
-}
-
-INT PureESA::findLCADepth(INT left, INT right) const {
-    if (left > right) swap(left, right);
-    if (left == right) return n - SA[left];
-    return LCP[rmq(left + 1, right)];
-}
-
-vector<INT> PureESA::getColorLeaves(INT color) const {
-    vector<INT> leaves;
-    for (INT i = 0; i < n; i++) {
-        if (getColor(i) == color) {
-            leaves.push_back(i);
-        }
-    }
-    return leaves;
-}
-
-int MultiColorTreeAlgorithm::global_node_id = 100000;
-
-MultiColorTreeAlgorithm::MultiColorTreeAlgorithm(const vector<string>& strings)
-    : inputStrings(strings), mainESA(nullptr) {
-    singleESAs.resize(strings.size(), nullptr);
-}
-
-MultiColorTreeAlgorithm::~MultiColorTreeAlgorithm() {
-    delete mainESA;
-    for (auto* esa : singleESAs) delete esa;
-}
-
-void MultiColorTreeAlgorithm::buildMainESA() {
-    mainESA = new PureESA(inputStrings);
-}
-
-void MultiColorTreeAlgorithm::buildSingleESAs() {
-    for (size_t i = 0; i < inputStrings.size(); i++) {
-        singleESAs[i] = new PureESA({inputStrings[i]});
-    }
-}
-
-void MultiColorTreeAlgorithm::establishIdentifierMappingsViaLCA_OptimalMerged() {
-    struct VirtualTreeNode {
-        INT left, right, lcp;
-        vector<INT> children;
-        unordered_map<INT, vector<INT>> colorLeaves;
-        INT parentLCP = 0;
-    };
-    
-    INT n = mainESA->size();
-    vector<VirtualTreeNode> nodes(n);
-    stack<INT> st;
-    
-    nodes[0].left = 0;
-    nodes[0].right = 0;
-    nodes[0].lcp = 0;
-    st.push(0);
-    
-    INT x = -1;
-    
-    for (INT i = 0; i < n; i++) {
-        INT currentLCP = (i < n - 1) ? mainESA->getLCPValue(i+1) : 0;
-        INT currentColor = mainESA->getColor(i);
-        INT l = i;
-        
-        while (!st.empty() && nodes[st.top()].lcp > currentLCP) {
-            x = st.top();
-            st.pop();
-            
-            nodes[x].right = i - 1;
-            
-            if (!st.empty()) {
-                for (auto& [color, leaves] : nodes[x].colorLeaves) {
-                    auto& parentLeaves = nodes[st.top()].colorLeaves[color];
-                    parentLeaves.insert(parentLeaves.end(), leaves.begin(), leaves.end());
-                }
-            }
-            
-            for (INT childIdx : nodes[x].children) {
-                nodes[childIdx].parentLCP = nodes[x].lcp;
-            }
-            
-            l = nodes[x].left;
-            
-            if (st.empty() || currentLCP <= nodes[st.top()].lcp) {
-                if (!st.empty()) {
-                    nodes[st.top()].children.push_back(x);
-                }
-                x = -1;
-            }
-        }
-        
-        if (!st.empty() && currentColor >= 0) {
-            nodes[st.top()].colorLeaves[currentColor].push_back(i);
-        }
-        
-        if (st.empty() || nodes[st.top()].lcp < currentLCP) {
-            nodes[i].lcp = currentLCP;
-            nodes[i].left = l;
-            nodes[i].colorLeaves.clear();
-            if (currentColor >= 0) {
-                nodes[i].colorLeaves[currentColor].push_back(i);
-            }
-            st.push(i);
-            if (~x) {
-                nodes[i].children.push_back(x);
-                x = -1;
-            }
-        }
-    }
-    
-    while (!st.empty()) {
-        x = st.top();
-        st.pop();
-        nodes[x].right = n - 1;
-        
-        for (INT childIdx : nodes[x].children) {
-            nodes[childIdx].parentLCP = nodes[x].lcp;
-        }
-    }
-    
-    for (INT i = 0; i < n; i++) {
-        if (nodes[i].lcp == 0) continue;
-        
-        auto mainKey = make_tuple(nodes[i].left, nodes[i].right, nodes[i].lcp);
-        
-        for (auto& [color, leaves] : nodes[i].colorLeaves) {
-            if (leaves.empty()) continue;
-            
-            INT leftSA = *min_element(leaves.begin(), leaves.end());
-            INT rightSA = *max_element(leaves.begin(), leaves.end());
-            
-            INT lcaDepth = singleESAs[color]->findLCADepth(leftSA, rightSA);
-            
-            ColorMapping mapping;
-            mapping.singleLeft = leftSA;
-            mapping.singleRight = rightSA;
-            mapping.singleLCP = lcaDepth;
-            mapping.color = color;
-            mapping.leafCount = leaves.size();
-            
-            nodeMappings[mainKey].push_back(mapping);
-        }
-    }
-}
-
-void MultiColorTreeAlgorithm::selectMaxFrequencies() {
-    for (auto& [mainKey, mappings] : nodeMappings) {
-        auto [left, right, lcp] = mainKey;
-        auto& node = mainESA->getOrCreateNode(left, right, lcp);
-        
-        INT maxFreq = 0;
-        INT bestColor = -1;
-        
-        for (const auto& mapping : mappings) {
-            if (mapping.leafCount > maxFreq) {
-                maxFreq = mapping.leafCount;
-                bestColor = mapping.color;
-            }
-        }
-        
-        node.max_freq = maxFreq;
-        node.max_color = bestColor;
-    }
-}
-
-void MultiColorTreeAlgorithm::performFrequencySelectionDFS() {
-    selectMaxFrequencies();
-}
-
-void MultiColorTreeAlgorithm::runAlgorithm() {
-    buildMainESA();
-    buildSingleESAs();
-    establishIdentifierMappingsViaLCA_OptimalMerged();
-    performFrequencySelectionDFS();
-}
-
 vector<string> readStringsFromFile(const string& filename) {
-    vector<string> strings;
-    ifstream file(filename);
-
-    if (!file.is_open()) {
-        throw runtime_error("Cannot open input file: " + filename);
+    ifstream inFile(filename);
+    if (!inFile.is_open()) {
+        return {};
     }
 
-    string line;
-    while (getline(file, line)) {
-        if (!line.empty()) {
-            strings.push_back(line);
+    vector<string> strings;
+    string currentLine;
+
+    while (getline(inFile, currentLine)) {
+        if (currentLine.empty()) continue;
+        
+        string processedLine;
+        processedLine.reserve(currentLine.length());
+        for (char c : currentLine) {
+             if (c >= 32 && c <= 126) {
+                processedLine += c;
+            }
+        }
+
+        if (!processedLine.empty()) {
+            strings.push_back(move(processedLine));
         }
     }
-
-    file.close();
-
-    if (strings.empty()) {
-        throw runtime_error("No valid strings found in input file");
-    }
-
+    strings.shrink_to_fit();
     return strings;
 }
 
@@ -384,24 +405,34 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    string inputFile = argv[1];
-    string outputFile = argv[2];
+    string inputFileName = argv[1];
+    string outputFileName = argv[2];
+    
+    int num_threads = thread::hardware_concurrency();
+    if (num_threads == 0) {
+        num_threads = 1;
+    }
 
-    try {
-        vector<string> inputStrings = readStringsFromFile(inputFile);
-        
-        MultiColorTreeAlgorithm algorithm(inputStrings);
-        algorithm.runAlgorithm();
-        
-        ofstream file(outputFile);
-        if (file.is_open()) {
-            file << "Algorithm completed successfully." << endl;
-            file.close();
-        }
-        
-        return 0;
-        
-    } catch (const exception& e) {
+    auto strings = readStringsFromFile(inputFileName);
+    if (strings.empty()) {
         return 1;
     }
+
+    ESAbasedFairSubstring* processor = new ESAbasedFairSubstring(strings);
+    processor->processAllLevels(num_threads);
+
+    int threshold = 1; 
+    vector<string> fairSubstrings = processor->findSubstringsWithinThreshold(threshold);
+    
+    // Writing results to output file
+    ofstream outFile(outputFileName);
+    if(outFile.is_open()){
+        for(const auto& str : fairSubstrings){
+            outFile << str << "\n";
+        }
+    }
+
+    delete processor;
+
+    return 0;
 }
