@@ -99,3 +99,24 @@ Examples:
 # Compute top-3 most frequent colors
 ./scm_k_most input.txt output.txt 3
 ```
+
+---
+
+## Sequence Classification with Random Forest
+
+This repository also includes a sequence classification tool using Random Forest with k-mer features.
+
+#### Requirements
+
+Python 3 with the following packages:
+```bash
+pip install numpy scikit-learn
+```
+
+#### Usage
+
+The script `sequence_classification_rf.py` performs binary classification (SARS-CoV-2 vs. non-SARS-CoV-2) using 7-mer features:
+
+```bash
+python sequence_classification_rf.py
+```
