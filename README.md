@@ -45,7 +45,7 @@ Our experiments on massive real-world datasets (with trees up to 7.3 billion nod
 
 ## Compilation
 
-Baselines should be compiled with the C++17 standard. All programs should use optimization flags for best performance.
+All programs should be compiled with the C++17 standard and optimization flags for best performance.
 
 ```bash
 # Baseline 1
