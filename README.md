@@ -1,6 +1,6 @@
-# Subtree Mode with Applications
+# Subtree Mode and Applications
 
-Official implementation of "Subtree Mode with Applications".
+Official implementation of "Subtree Mode and Applications".
 
 ## Overview
 
@@ -121,4 +121,19 @@ The script `sequence_classification_rf.py` performs binary classification (SARS-
 
 ```bash
 python sequence_classification_rf.py
+```
+
+---
+
+## Citation
+
+Please cite our paper if you use this work:
+
+```bibtex
+@article{zhou2025subtree,
+  title={Subtree Mode and Applications},
+  author={Zhou, Jialong and Bals, Ben and Tinca, Matei and Guan, Ai and Charalampopoulos, Panagiotis and Loukides, Grigorios and Pissis, Solon P},
+  journal={arXiv preprint arXiv:2511.01376},
+  year={2025}
+}
 ```
