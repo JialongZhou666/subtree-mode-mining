@@ -14,10 +14,10 @@ Our experiments on massive real-world datasets (with trees up to 7.3 billion nod
 
 ## Requirements
 
-* **OS**: A GNU/Linux system (e.g., Ubuntu, CentOS).
-* **Compiler**: A modern C++17 ready compiler (e.g., GCC 7+ or Clang 6+).
+* **OS**: A GNU/Linux system (e.g., Ubuntu, CentOS, macOS).
+* **Compiler**: A modern C++17 ready compiler (e.g., GCC 7+ or Clang 6+)
 * **Dependencies**: 
-  - **For SCM_k-most**: Only `libdivsufsort` is required
+  - **For SCM and SCM_k-most**: `libdivsufsort` is required
   - **For baselines**: Both `sdsl-lite` and `libdivsufsort` are required
   
   Please follow these steps to install them:
@@ -45,7 +45,7 @@ Our experiments on massive real-world datasets (with trees up to 7.3 billion nod
 
 ## Compilation
 
-All programs should be compiled with the C++17 standard and optimization flags for best performance.
+All programs should be compiled with optimization flags for best performance.
 
 ```bash
 # Baseline 1
@@ -57,10 +57,14 @@ g++ -std=c++17 -O3 -o baseline2 Baseline2.cpp
 # Baseline 3
 g++ -std=c++17 -O3 -o baseline3 Baseline3.cpp -ldivsufsort64 -lsdsl
 
-# SCM_k-most (Our Algorithm - computes top-k most frequent colors)
-# Note: When k=1, this is equivalent to the original SCM algorithm
-g++ -std=c++17 -O3 -DUSE_DIVSUFSORT -o scm_k_most SCM_k-most.cpp -ldivsufsort
+# SCM (Our Algorithm)
+g++ -std=c++17 -O3 -I/usr/local/include -L/usr/local/lib SCM.cpp -ldivsufsort -o scm
+
+# SCM_k-most (Extended version - computes top-k most frequent colors)
+g++ -std=c++17 -O3 -I/usr/local/include -L/usr/local/lib SCM_k-most.cpp -ldivsufsort -o scm_k-most
 ```
+
+**Note**: If you installed `libdivsufsort` in a custom location, adjust the `-I` and `-L` paths accordingly.
 
 ---
 
@@ -80,24 +84,22 @@ The baseline programs share a common usage pattern:
 ./<program_name> <input_file> <output_file>
 ```
 
+#### SCM (Our Algorithm)
+The `SCM` program computes the mode (most frequent color) for the root subtree:
+```
+./scm <input_file> <output_file>
+```
+
+#### SCM_k-most (Extended Version)
+The `SCM_k-most` program computes the top-k most frequent colors for the root subtree. It requires an additional parameter `k`:
+```
+./scm_k-most <input_file> <output_file> <k>
+```
+
 Example:
-```
-./baseline1 input.txt output.txt
-```
-
-#### SCM_k-most (Our Algorithm)
-The `SCM_k-most` program requires an additional parameter `k` to specify the number of most frequent colors:
-```
-./scm_k_most <input_file> <output_file> <k>
-```
-
-Examples:
 ```bash
-# Compute the mode (k=1, equivalent to original SCM algorithm)
-./scm_k_most input.txt output.txt 1
-
 # Compute top-3 most frequent colors
-./scm_k_most input.txt output.txt 3
+./scm_k-most input.txt output.txt 3
 ```
 
 ---
