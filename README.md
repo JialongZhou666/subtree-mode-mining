@@ -60,7 +60,7 @@ g++ -std=c++17 -O3 -o baseline3 Baseline3.cpp -ldivsufsort64 -lsdsl
 # SCM (Our Algorithm)
 g++ -std=c++17 -O3 -I/usr/local/include -L/usr/local/lib SCM.cpp -ldivsufsort -o scm
 
-# SCM_k-most (Extended version - computes top-k most frequent colors)
+# SCM_k-most (Extended Version - computes top-k most frequent colors)
 g++ -std=c++17 -O3 -I/usr/local/include -L/usr/local/lib SCM_k-most.cpp -ldivsufsort -o scm_k-most
 ```
 
